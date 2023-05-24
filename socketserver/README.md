@@ -39,6 +39,10 @@ socket，read只能读取指定大小的数据，
 rfile是缓冲的，
 wfile不是缓冲的，集成BufferedIOBase实现的类，避免了每次flush操作
 
+另外参考
+> redis-client的读取（创建buffer）go buffio.Scan
+
+
 handler()
 **需要重写**
 

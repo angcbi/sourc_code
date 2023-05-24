@@ -157,15 +157,18 @@ class BaseServer:
     Methods for the caller:
 
     - __init__(server_address, RequestHandlerClass)
-    - serve_forever(poll_interval=0.5)
+    - serve_forever(poll_interval=0.5)            # 一直运行
     - shutdown()
-    - handle_request()  # if you do not use serve_forever()
+    - handle_request()  # if you do not use serve_forever()  # 处理一个请求
     - fileno() -> int   # for selector
 
     Methods that may be overridden:
 
-    - server_bind()
+    - server_bind()    # 指定是bind IP还是unix sock
     - server_activate()
+    # tcp = server.accept()
+
+    # 改成处理多个请求，TCP来说，get_request之后，启动进程/线程/poll去处理
     - get_request() -> request, client_address
     - handle_timeout()
     - verify_request(request, client_address)
@@ -201,7 +204,7 @@ class BaseServer:
         """Constructor.  May be extended, do not override."""
         self.server_address = server_address
         self.RequestHandlerClass = RequestHandlerClass
-        self.__is_shut_down = threading.Event()
+        self.__is_shut_down = threading.Event() # 标志位，默认False, e.wait(timeout) 等待为ture, e.set()设置true,
         self.__shutdown_request = False
 
     def server_activate(self):
@@ -219,13 +222,14 @@ class BaseServer:
         self.timeout. If you need to do periodic tasks, do them in
         another thread.
         """
-        self.__is_shut_down.clear()
+        self.__is_shut_down.clear()  # event False, 调用wait的都阻塞
         try:
             # XXX: Consider using another file descriptor or connecting to the
             # socket to wake this up instead of polling. Polling reduces our
             # responsiveness to a shutdown request and wastes cpu at all other
             # times.
             with _ServerSelector() as selector:
+                # register注册一般注册的fd,这次注册的是实例
                 selector.register(self, selectors.EVENT_READ)
 
                 while not self.__shutdown_request:
@@ -234,7 +238,7 @@ class BaseServer:
                     if self.__shutdown_request:
                         break
                     if ready:
-                        self._handle_request_noblock()
+                        self._handle_request_noblock()  # 处理请求
 
                     self.service_actions()
         finally:
@@ -288,6 +292,7 @@ class BaseServer:
         # Wait until a request arrives or the timeout expires - the loop is
         # necessary to accommodate early wakeups due to EINTR.
         with _ServerSelector() as selector:
+            # register注册的fd, 这块注册的实例自己
             selector.register(self, selectors.EVENT_READ)
 
             while True:
@@ -307,14 +312,21 @@ class BaseServer:
         readable before this function was called, so there should be no risk of
         blocking in get_request().
         """
+
+        # 方法重写get_request，获取客户端连接
         try:
             request, client_address = self.get_request()
         except OSError:
             return
+
+        # verify_request 可以做一些拦截相关的
         if self.verify_request(request, client_address):
             try:
+                # 处理请求
                 self.process_request(request, client_address)
             except Exception:
+
+                # 出错的处理
                 self.handle_error(request, client_address)
                 self.shutdown_request(request)
             except:
@@ -344,6 +356,7 @@ class BaseServer:
         Overridden by ForkingMixIn and ThreadingMixIn.
 
         """
+        # finish_request 里面调用requestHandlerClass，实例去处理
         self.finish_request(request, client_address)
         self.shutdown_request(request)
 
@@ -380,6 +393,7 @@ class BaseServer:
         traceback.print_exc()
         print('-'*40, file=sys.stderr)
 
+    # enter, exit 实现with语法
     def __enter__(self):
         return self
 
@@ -449,6 +463,7 @@ class TCPServer(BaseServer):
                                     self.socket_type)
         if bind_and_activate:
             try:
+                # bind and listen
                 self.server_bind()
                 self.server_activate()
             except:
@@ -461,6 +476,7 @@ class TCPServer(BaseServer):
         May be overridden.
 
         """
+        # 复用ip, reuse_port一般一块设置，内核负责分配请求给同端口启动的进程
         if self.allow_reuse_address:
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind(self.server_address)
@@ -498,6 +514,7 @@ class TCPServer(BaseServer):
         """
         return self.socket.accept()
 
+    # request socket.conn对象
     def shutdown_request(self, request):
         """Called to shutdown and close an individual request."""
         try:
@@ -710,7 +727,7 @@ class BaseRequestHandler:
     can define other arbitrary instance variables.
 
     """
-
+    # 每个连接实例化一个，setup设置，finish收尾
     def __init__(self, request, client_address, server):
         self.request = request
         self.client_address = client_address
@@ -724,6 +741,7 @@ class BaseRequestHandler:
     def setup(self):
         pass
 
+    # 重写这个方法，处理连接的客户端
     def handle(self):
         pass
 
@@ -760,6 +778,8 @@ class StreamRequestHandler(BaseRequestHandler):
     # Use only when wbufsize != 0, to avoid small packets.
     disable_nagle_algorithm = False
 
+    # 默认sock读取指定大小的数据, makefile方便按行读，redis-client的读取（创建buffer）,go buffio.Scan
+    # wfile不采用缓冲的，不用每次flush操作
     def setup(self):
         self.connection = self.request
         if self.timeout is not None:
@@ -807,6 +827,7 @@ class DatagramRequestHandler(BaseRequestHandler):
 
     """Define self.rfile and self.wfile for datagram sockets."""
 
+    # bytesIO创建buffer
     def setup(self):
         from io import BytesIO
         self.packet, self.socket = self.request

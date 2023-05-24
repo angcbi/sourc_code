@@ -2,7 +2,7 @@ from socketserver import StreamRequestHandler, TCPServer
 
 
 class Handler(StreamRequestHandler):
-    def handler(self):
+    def handle(self):
         while True:
             data = self.rfile.readline()
             if not data:
